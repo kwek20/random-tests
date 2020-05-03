@@ -1,5 +1,6 @@
 package org.iota.test.tests;
 
+import org.iota.jota.dto.response.CheckConsistencyResponse;
 import org.iota.jota.dto.response.GetAttachToTangleResponse;
 import org.iota.jota.dto.response.IotaCustomResponse;
 import org.iota.jota.dto.response.SendTransferResponse;
@@ -38,6 +39,8 @@ public class TestSnapshot extends CoreTest {
 
     private int mwm;
 
+    private int lastSnapshotIndex;
+
     @Override
     public void run() {
         List<Transfer> transfers = new LinkedList<>();
@@ -53,16 +56,45 @@ public class TestSnapshot extends CoreTest {
         new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkMilestone, 0, 10, TimeUnit.SECONDS);
 
         new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkTransactions, 0, 10, TimeUnit.SECONDS);
+        
+        new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkConfirmationAndGTTA, 0, 30, TimeUnit.SECONDS);
+    }
+    
+    private void checkConfirmationAndGTTA() {
+        synchronized (lock) {
+            CheckConsistencyResponse response = api.checkConsistency(attachedHashes.toArray(new String[0]));
+            System.out.println(response.getState());
+            if (!response.getState()) {
+                System.out.println(response.getInfo());
+            }
+            
+            if (!checkTipselNotAllowed()) {
+                System.out.println("Whoa we were allowed to use them!");
+            }
+        }
+    }
+
+    private boolean checkTipselNotAllowed() {
+        boolean failed = true;
+        for (String hash : attachedHashes) {
+            try {
+                api.attachToTangle(hash, hash, mwm, transaction.toTrytes());
+                
+                failed = false;
+                break;
+            } catch (Exception e) {
+                // TODO: handle exception
+            }
+        }
+        return failed;
     }
 
     private void checkMilestone() {
         try {
             String ms = api.getNodeInfo().getLatestMilestone();
             if (msHash.get() == null || !ms.equals(msHash.get())) {
-                System.out.println("Running stitch");
                 msHash.set(ms);
                 newMsIssued.set(true);
-                stitch();
                 return;
             }
         } catch (Exception e) {
@@ -80,15 +112,21 @@ public class TestSnapshot extends CoreTest {
 
     private void checkTransactions() {
         try {
+            int currentSnapshotIndex = this.lastSnapshotIndex;
             Set<String> entrypoints = getEntryPoints();
-            System.out.println("Entrypoints: " + entrypoints);
-            synchronized (lock) {
-                for (String hash : attachedHashes) {
-                    if (entrypoints.contains(hash)) {
-                        System.out.println("Were in the SEPS! " + hash);
+            if (currentSnapshotIndex != this.lastSnapshotIndex) {
+                stitch();
+                // We took a snapshot!
+                System.out.println("Entrypoints: " + entrypoints);
+                synchronized (lock) {
+                    for (String hash : attachedHashes) {
+                        if (entrypoints.contains(hash)) {
+                            System.out.println("Were in the SEPS! " + hash);
+                        }
                     }
                 }
             }
+            
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -97,10 +135,11 @@ public class TestSnapshot extends CoreTest {
     private Set<String> getEntryPoints(){
         Set<String> entryPoints = new HashSet<String>();
         IotaCustomResponse res = api.callIxi("sep.getSep", null);
+        Object index = res.getIxi().get("index");
+        lastSnapshotIndex = (int) Double.parseDouble(index.toString());
+        
         Object seps = res.getIxi().get("sep");
         try {
-           //Map<String, Integer> json = JsonParser.get().parsJson(seps.toString());
-           //System.out.println(json.keySet());
             String map = seps.toString().substring(seps.toString().indexOf("{") + 1, seps.toString().indexOf("}"));
             String[] entries = map.split(", ");
             for (String entry : entries) {
@@ -109,7 +148,6 @@ public class TestSnapshot extends CoreTest {
             }
            return entryPoints;
         } catch (Exception e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
         }
         
