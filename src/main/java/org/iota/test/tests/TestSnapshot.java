@@ -57,19 +57,24 @@ public class TestSnapshot extends CoreTest {
 
         new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkTransactions, 0, 10, TimeUnit.SECONDS);
         
-        new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkConfirmationAndGTTA, 0, 30, TimeUnit.SECONDS);
+        new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkConfirmationAndGTTA, 15, 30, TimeUnit.SECONDS);
     }
     
     private void checkConfirmationAndGTTA() {
         synchronized (lock) {
-            CheckConsistencyResponse response = api.checkConsistency(attachedHashes.toArray(new String[0]));
-            System.out.println(response.getState());
-            if (!response.getState()) {
-                System.out.println(response.getInfo());
-            }
-            
-            if (!checkTipselNotAllowed()) {
-                System.out.println("Whoa we were allowed to use them!");
+            try {
+                // Step 4b
+                CheckConsistencyResponse response = api.checkConsistency(attachedHashes.toArray(new String[0]));
+                System.out.println("All confirmed: " + response.getState());
+                if (!response.getState()) {
+                    System.out.println(response.getInfo());
+                }
+                
+                if (!checkTipselNotAllowed()) {
+                    System.out.println("Whoa we were allowed to use them!");
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
     }
@@ -83,6 +88,7 @@ public class TestSnapshot extends CoreTest {
                 failed = false;
                 break;
             } catch (Exception e) {
+                e.printStackTrace();
                 // TODO: handle exception
             }
         }
@@ -95,6 +101,9 @@ public class TestSnapshot extends CoreTest {
             if (msHash.get() == null || !ms.equals(msHash.get())) {
                 msHash.set(ms);
                 newMsIssued.set(true);
+
+                //Attach our tx to current milestone, step 2 and 3
+                stitch();
                 return;
             }
         } catch (Exception e) {
@@ -104,8 +113,9 @@ public class TestSnapshot extends CoreTest {
 
     private void stitch() {
         GetAttachToTangleResponse stitch = api.attachToTangle(msHash.get(), transaction.getHash(), mwm, transaction.toTrytes());
-        System.out.println(stitch);
+        System.out.println(stitch.getTrytes());
         synchronized (lock) {
+            System.out.println("Adding " + Transaction.asTransactionObjects(stitch.getTrytes())[0].getHash());
             attachedHashes.add(Transaction.asTransactionObjects(stitch.getTrytes())[0].getHash());
         }
     }
@@ -115,8 +125,7 @@ public class TestSnapshot extends CoreTest {
             int currentSnapshotIndex = this.lastSnapshotIndex;
             Set<String> entrypoints = getEntryPoints();
             if (currentSnapshotIndex != this.lastSnapshotIndex) {
-                stitch();
-                // We took a snapshot!
+                // We took a snapshot! step 4a
                 System.out.println("Entrypoints: " + entrypoints);
                 synchronized (lock) {
                     for (String hash : attachedHashes) {
