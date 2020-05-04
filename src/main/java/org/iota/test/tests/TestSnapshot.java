@@ -34,6 +34,7 @@ public class TestSnapshot extends CoreTest {
     private AtomicBoolean newMsIssued = new AtomicBoolean(false);
     
     private List<String> attachedHashes = new ArrayList<>();
+    private List<String> previousHashes = new ArrayList<>();
     
     private Transaction transaction;
 
@@ -44,7 +45,7 @@ public class TestSnapshot extends CoreTest {
     @Override
     public void run() {
         List<Transfer> transfers = new LinkedList<>();
-        transfers.add(new Transfer(Constants.NULL_HASH + 999999999, 0, 
+        transfers.add(new Transfer(Constants.NULL_HASH + "999999999", 0, 
                 TrytesConverter.asciiToTrytes("Were testing solid entry points, how awesome. " + new Date()), 
                 "TEST9TX9NEW9SEP"));
         
@@ -89,7 +90,6 @@ public class TestSnapshot extends CoreTest {
                 break;
             } catch (Exception e) {
                 e.printStackTrace();
-                // TODO: handle exception
             }
         }
         return failed;
@@ -113,10 +113,13 @@ public class TestSnapshot extends CoreTest {
 
     private void stitch() {
         GetAttachToTangleResponse stitch = api.attachToTangle(msHash.get(), transaction.getHash(), mwm, transaction.toTrytes());
-        System.out.println(stitch.getTrytes());
+        api.storeAndBroadcast(stitch.getTrytes());
         synchronized (lock) {
-            System.out.println("Adding " + Transaction.asTransactionObjects(stitch.getTrytes())[0].getHash());
-            attachedHashes.add(Transaction.asTransactionObjects(stitch.getTrytes())[0].getHash());
+            Transaction tx = new Transaction();
+            tx.transactionObject(stitch.getTrytes()[0]);
+                    
+            attachedHashes.clear();
+            attachedHashes.add(tx.getHash());
         }
     }
 
@@ -124,16 +127,22 @@ public class TestSnapshot extends CoreTest {
         try {
             int currentSnapshotIndex = this.lastSnapshotIndex;
             Set<String> entrypoints = getEntryPoints();
-            if (currentSnapshotIndex != this.lastSnapshotIndex) {
+            if (currentSnapshotIndex != this.lastSnapshotIndex && this.lastSnapshotIndex != 0) {
+                System.out.println("Took snapshot at " + currentSnapshotIndex);
+                
                 // We took a snapshot! step 4a
                 System.out.println("Entrypoints: " + entrypoints);
                 synchronized (lock) {
-                    for (String hash : attachedHashes) {
+                    for (String hash : previousHashes) {
                         if (entrypoints.contains(hash)) {
                             System.out.println("Were in the SEPS! " + hash);
                         }
                     }
                 }
+                
+                previousHashes.clear();
+                previousHashes.addAll(attachedHashes);
+                attachedHashes.clear();
             }
             
         } catch (Exception e) {
