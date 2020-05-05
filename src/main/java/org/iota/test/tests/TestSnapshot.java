@@ -58,15 +58,14 @@ public class TestSnapshot extends CoreTest {
         this.mwm = testnet ? 9 : 14;
         SendTransferResponse transferResponse = api.sendTransfer(Constants.NULL_HASH, 1, 1, mwm, transfers, null, null, false, false, null);
         transaction = transferResponse.getTransactions().get(0);
+        System.out.println("send transfer: " + transaction.getHash());
         
         new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkMilestone, 0, 10, TimeUnit.SECONDS);
 
-        new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkTransactions, 0, 10, TimeUnit.SECONDS);
+        new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkTransactions, 1, 10, TimeUnit.SECONDS);
         
         //new ScheduledThreadPoolExecutor(1).scheduleAtFixedRate(this::checkConfirmationAndGTTA, 15, 30, TimeUnit.SECONDS);
     }
-    
-    // STEP 2 AND 3
     
     private void checkMilestone() {
         try {
@@ -75,38 +74,48 @@ public class TestSnapshot extends CoreTest {
             if (msHash.get() == null || !ms.equals(msHash.get())) {
                 msHash.set(ms);
                 msIndex.set(info.getLatestMilestoneIndex());
+                System.out.println("Updating milestone to " + msIndex.get());
                 newMsIssued.set(true);
 
-                //Attach our tx to current milestone, step 2 and 3
-                stitch();
+                // Add hashes to index
+                if (willTakeSnapshotAt(msIndex.get())) {
+                    System.out.println("Storing hashes at index " + msIndex.get());
+                    previousHashes.put(msIndex.get(), attachedHashes);
+                    attachedHashes.clear();
+                }
+                
+                // We start this once we know the delay, which leads us to knowing the index the snapshot
+                // gets taken on. Otherwise we would have more hashes than used in the snapshot
+                if (this.snapshotDelay != 0) {
+                    // Attach our tx to current milestone, step 2 and 3
+                    stitch();
+                }
                 return;
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
-    
+
+    // STEP 2 and 3
     private void stitch() {
         GetAttachToTangleResponse stitch = api.attachToTangle(msHash.get(), transaction.getHash(), mwm, transaction.toTrytes());
         api.storeAndBroadcast(stitch.getTrytes());
         synchronized (lock) {
             Transaction tx = new Transaction();
             tx.transactionObject(stitch.getTrytes()[0]);
-                    
-            attachedHashes.clear();
             attachedHashes.add(tx.getHash());
         }
     }
     
     // STEP 4.A
-    
     private void checkTransactions() {
         try {
             int currentSnapshotIndex = this.lastSnapshotIndex;
             Set<String> entrypoints = getEntryPoints();
             if (currentSnapshotIndex != this.lastSnapshotIndex && currentSnapshotIndex != 0) {
                 this.snapshotDelay = this.lastSnapshotIndex - currentSnapshotIndex;
-                System.out.println("Took snapshot at " + currentSnapshotIndex);
+                System.out.println("Took snapshot at " + this.lastSnapshotIndex);
                 System.out.println("Current milestones at " + this.msIndex);
                 System.out.println("Taking snapshots every " + this.snapshotDelay);
                 
@@ -114,28 +123,61 @@ public class TestSnapshot extends CoreTest {
                 if (msWait > 0) {
                     System.out.println("So we need " + msWait + " more milestones before activating");
                 } else {
-                    // We took a snapshot! step 4a
-                    System.out.println("Entrypoints: " + entrypoints);
-                    synchronized (lock) {
-                        List<String> previousHashes = this.previousHashes.get(currentSnapshotIndex);
-                        if (previousHashes != null) {
-                            for (String hash : previousHashes) {
-                                if (entrypoints.contains(hash)) {
-                                    System.out.println("Were in the SEPS! " + hash);
-                                }
-                            }
-                            checkConfirmationAndGTTA(currentSnapshotIndex);
-                        }
-                    }
+                    validateSnapshotEntrypoints(entrypoints);
                 }
-                
-                previousHashes.put(this.lastSnapshotIndex, attachedHashes);
-                attachedHashes.clear();
             }
             
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+    
+    private void validateSnapshotEntrypoints(Set<String> entrypoints) {
+        // We took a snapshot! step 4a
+        System.out.println("Entrypoints: " + entrypoints);
+        synchronized (lock) {
+            List<String> previousHashes = this.previousHashes.get(this.lastSnapshotIndex);
+            if (previousHashes != null) {
+                for (String hash : previousHashes) {
+                    if (entrypoints.contains(hash)) {
+                        System.out.println("Were in the SEPS! " + hash);
+                    }
+                }
+                checkConfirmationAndGTTA(this.lastSnapshotIndex);
+            } else {
+                System.out.println("[ERROR] Should have contained hashes in map!");
+            }
+        } 
+    }
+    
+    // STEP 4.B
+    private void checkConfirmationAndGTTA(int indexToCheck) {
+        synchronized (lock) {
+            try {
+                // Step 4b
+                CheckConsistencyResponse response = api.checkConsistency(previousHashes.get(indexToCheck).toArray(new String[0]));
+                System.out.println("All confirmed: " + response.getState());
+                if (!response.getState()) {
+                    System.out.println(response.getInfo());
+                }
+                
+                if (!checkTipselNotAllowed(indexToCheck)) {
+                    System.out.println("Whoa we were allowed to use them!");
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    // UTIL
+    
+    private boolean willTakeSnapshotAt(int index) {
+        if (this.snapshotDelay == 0 || this.lastSnapshotIndex == 0) {
+            return false;
+        }
+        
+        return (index - this.lastSnapshotIndex) % this.snapshotDelay == 0;
     }
     
     private Set<String> getEntryPoints(){
@@ -158,27 +200,6 @@ public class TestSnapshot extends CoreTest {
         }
         
         return null;
-    }
-    
-    // STEP 4.B
-    
-    private void checkConfirmationAndGTTA(int indexToCheck) {
-        synchronized (lock) {
-            try {
-                // Step 4b
-                CheckConsistencyResponse response = api.checkConsistency(previousHashes.get(indexToCheck).toArray(new String[0]));
-                System.out.println("All confirmed: " + response.getState());
-                if (!response.getState()) {
-                    System.out.println(response.getInfo());
-                }
-                
-                if (!checkTipselNotAllowed(indexToCheck)) {
-                    System.out.println("Whoa we were allowed to use them!");
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
     }
 
     private boolean checkTipselNotAllowed(int indexToCheck) {
