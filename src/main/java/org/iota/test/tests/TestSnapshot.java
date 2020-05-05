@@ -105,6 +105,8 @@ public class TestSnapshot extends CoreTest {
             Transaction tx = new Transaction();
             tx.transactionObject(stitch.getTrytes()[0]);
             attachedHashes.add(tx.getHash());
+            
+            transaction = tx;
         }
     }
     
@@ -182,18 +184,20 @@ public class TestSnapshot extends CoreTest {
     
     private Set<String> getEntryPoints(){
         Set<String> entryPoints = new HashSet<String>();
-        IotaCustomResponse res = api.callIxi("sep.getSep", null);
-        Object index = res.getIxi().get("index");
-        lastSnapshotIndex = (int) Double.parseDouble(index.toString());
-        
-        Object seps = res.getIxi().get("sep");
+        IotaCustomResponse res;
         try {
-            String map = seps.toString().substring(seps.toString().indexOf("{") + 1, seps.toString().indexOf("}"));
-            String[] entries = map.split(", ");
-            for (String entry : entries) {
-                String[] keyValue = entry.split("=");
-                entryPoints.add(keyValue[0]);
-            }
+            res = api.callIxi("sep.getSep", null);
+        } catch (Exception e) {
+            System.out.println("Failed to call ixi! Please install resources/ixis/sep/");
+            return null;
+        }
+        
+        try {
+            Double index = (Double)res.getIxi().get("indexOld");
+            lastSnapshotIndex = (int) Double.parseDouble(index.toString());
+            
+            Map seps = (Map) res.getIxi().get("sepOld");
+            entryPoints.addAll(seps.keySet());
            return entryPoints;
         } catch (Exception e) {
             e.printStackTrace();
