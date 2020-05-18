@@ -15,14 +15,22 @@ public class Main {
     private static final String DEV = "https://nodes.devnet.iota.org";
 
     private static final String LOCAL = "http://localhost:14265";
+    
+    private static final String MAIN = "https://nodes.iota.cafe:443";
+    
+    private static final String BILL_ICC = "https://78.46.137.210:14265";
+    
+    private static final String GAL_ICC = "http://gal01.icc.iota.cafe:14265"; //159.69.145.21:
 
-    private static final String node = ICC;
+    private static final String TRINITY = "https://nodes.thetangle.org:443"; // https://nodes.iota.cafe:443 -> 0.415
+    
+    private static final String node = TRINITY;
 
     public static void main(String[] args) throws MalformedURLException {
         IotaAPI api = new IotaAPI.Builder().addNode(new HttpConnector(new URL(node))).build();
         TestRunner runner = new TestRunner(api);
 
-        runner.run(Tests.TestSnapshot);
+        runner.run(Tests.PropagationTest);
     }
 
 }

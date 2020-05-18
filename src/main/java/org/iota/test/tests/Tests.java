@@ -1,9 +1,11 @@
 package org.iota.test.tests;
 
 public enum Tests {
+    InspectBundle(InspectBundle.class),
     TestSnapshot(TestSnapshot.class),
     CheckTips(CheckTips.class), 
-    NodeInfo(NodeInfo.class);
+    NodeInfo(NodeInfo.class), 
+    PropagationTest(PropagationTest.class);
 
 	private Class<? extends CoreTest> clazz;
 
