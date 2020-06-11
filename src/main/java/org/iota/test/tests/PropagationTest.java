@@ -102,7 +102,7 @@ public class PropagationTest extends CoreTest {
                     System.out.println("new Avg: " + (avg / 1000d) + "s (" + total + "/" + avgTimeTotal.get() + ")");
                     
                     if (total == NUM_TX) {
-                        checkTask .cancel(false);
+                        checkTask.cancel(false);
                     }
                     
                     synchronized (hashesToCheck) {

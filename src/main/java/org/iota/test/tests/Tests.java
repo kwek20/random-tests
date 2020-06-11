@@ -2,6 +2,7 @@ package org.iota.test.tests;
 
 public enum Tests {
     InspectBundle(InspectBundle.class),
+    FakeTransfer(FakeTransfer.class),
     TestSnapshot(TestSnapshot.class),
     CheckTips(CheckTips.class), 
     NodeInfo(NodeInfo.class), 
